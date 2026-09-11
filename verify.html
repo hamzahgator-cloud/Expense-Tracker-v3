@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email | Expense Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>Verify Email</h1>
+            <p class="auth-subtitle" id="verify-subtitle">Enter the 6-digit code sent to your email</p>
+
+            <div id="auth-message"></div>
+
+            <div class="auth-form" id="otp-section">
+                <input
+                    type="text"
+                    id="otp-input"
+                    placeholder="6-digit code"
+                    maxlength="6"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                >
+
+                <button type="button" id="btn-verify-otp">Verify Email</button>
+
+                <p class="auth-link">
+                    Didn't get a code?
+                    <a href="#" id="btn-resend-otp">Resend code</a>
+                </p>
+            </div>
+
+            <p class="auth-link">
+                <a href="login.html">Back to login</a>
+            </p>
+        </div>
+    </div>
+
+    <script src="verify.js"></script>
+</body>
+</html>

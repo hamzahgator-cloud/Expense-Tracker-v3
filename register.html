@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | Expense Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="auth-page">
+
+    <div class="auth-container">
+        <div class="auth-card">
+
+            <h1>Expense Tracker</h1>
+            <p class="auth-subtitle">Create your account</p>
+
+            <div id="auth-message"></div>
+
+            <div class="auth-form" id="register-form">
+                <input type="email" id="email" placeholder="abc@gmail.com" required>
+
+                <div class="password-wrapper">
+                    <input type="password" id="password" placeholder="Password (min 8 characters)" required>
+                    <span class="eye-icon" id="toggle-password">👁</span>
+                </div>
+
+                <div class="password-wrapper">
+                    <input type="password" id="confirm-password" placeholder="Confirm password" required>
+                    <span class="eye-icon" id="toggle-confirm">👁</span>
+                </div>
+
+                <button type="button" id="btn-register">Create Account</button>
+            </div>
+
+
+            <p class="auth-link" id="signin-link">
+                Already have an account?
+                <a href="login.html">Sign in</a>
+            </p>
+
+        </div>
+    </div>
+
+
+    
+    <script src="auth.js"></script>
+</body>
+</html>

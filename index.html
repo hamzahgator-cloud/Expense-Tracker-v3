@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head> 
+    <meta charset="UTF-8">
+    <title>Expense Tracker</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <link rel="stylesheet" href ="style.css">
+</head>
+
+<body>
+    <div id="message-box"></div>
+    <div class="top">
+        <h1>Expense Tracker</h1>
+        <h2 class="summary-text">Expenses Summary</h2>
+
+        <div class="top-bar">
+            <a href="admin.html" id="admin-link" class="hidden">Admin Dashboard</a>
+        <div class="user-info">
+            <span id="user-email"></span>
+            <button id="btn-logout">Logout</button>
+        </div>
+        </div>
+    </div>
+        
+
+
+<div class="main">
+         <form id ="expense-form">
+            <input type="text" id="name" placeholder="Name" required>
+            <input type="number" id="amount" placeholder="Amount" required>
+            <input type="text" id="category" placeholder="Category" required>
+            <button class="add-btn" type="submit">Add Expense</button>
+            
+        </form>
+
+        <div class="summary-card">
+                <h3>Expense Category Summary</h3>
+                <p id="category-summary"></p>
+        </div>
+
+        <div id="dashboard">
+    
+            <div class="card">
+                <h3>Total Expenses</h3>
+                <p id="total-expense"></p>
+            </div>
+
+            <div class="card">
+                <h3>Number of Expenses</h3>
+                <p id="expense-count"></p>
+            </div>
+
+            <div class="card">
+                <h3>Average Expense</h3>
+                <p id="average-expense"></p>
+            </div>
+
+            <div class="card">
+                <h3>Highest Expense</h3>
+                <p id="highest-expense"></p>
+            </div>
+
+            <div class="card">
+                <h3>Lowest Expense</h3>
+                <p id="lowest-expense"></p>
+            </div>
+            
+    
+         </div>
+
+</div>
+      
+
+<div id="charts-section">
+    <h2>Spending Analytics</h2>
+    
+    <div class="charts-grid">
+        
+        <div class="chart-card">
+            <h3>Expenses By Category</h3>
+            <canvas id="categoryBarChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <h3>Spending Distribution</h3>
+            <canvas id="categoryPieChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <h3>Spending Over Time</h3>
+            <canvas id="timeLineChart"></canvas>
+        </div>
+
+    </div>
+</div>
+
+    <div id="update-section" class="hidden">
+            <h3>Update Expense</h3>
+            <input type="text" id="update-id" placeholder="Expense ID" readonly>
+            <input type="text" id="update-name" placeholder="New Name">
+            <input type="number" id="update-amount" placeholder="New Amount">
+            <input type="text" id="update-category" placeholder="New Category">
+            <button id="btn-confirm-update">Confirm Update</button>
+            <button id="btn-cancel-update">Cancel</button>
+    </div>
+
+
+<div class="them">
+
+        <div id="search-box">
+            <input type="text" id="search-input" placeholder="Search expense by name">
+
+            <button type="button" class="search-btn">Search</button>
+
+            <input type="text" id="filter-input" placeholder="Filter by category">
+
+            <button type="button" class="filter-btn">Filter</button>
+
+            <button type="button" class="reset-btn">Show all Expenses</button>
+
+            <button type="button" class="download-btn">Downlaod all expenses in pdf</button>
+
+        </div>
+</div>
+
+
+        <table id="expense-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Amount $</th>
+                    <th>Category</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="expense-body">
+                </tbody>
+        </table>
+<script src="script.js"></script>
+</body>
+</html>
