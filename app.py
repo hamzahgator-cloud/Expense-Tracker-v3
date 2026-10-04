@@ -4,7 +4,9 @@ from flask_cors import  CORS
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, get_jwt
 from datetime import timedelta
 import os
+from auth import auth, users_table, get_db
 from dotenv import load_dotenv
+from functools import wraps
 
 
 
@@ -18,7 +20,7 @@ from extensions import limiter
 from expense import Expense
 from repository import ExpenseRepository
 from service import ExpenseService
-from auth import auth, users_table
+
 
 
 
@@ -53,6 +55,24 @@ app.config["JWT_ALGORITHM"] = "HS256"
 
 jwt = JWTManager(app)
 
+
+@jwt.token_in_blocklist_loader
+def check_if_user_disabled(jwt_header, jwt_payload):
+    user_id = jwt_payload["sub"]  
+
+    conn = get_db()
+    user = conn.execute(
+        "SELECT is_active, deleted_at FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+
+    if not user:
+        return True  
+
+    if not user["is_active"] or user["deleted_at"]:
+        return True 
+
+    return False  
 
 
 app.register_blueprint(auth, url_prefix="/auth")
@@ -101,59 +121,54 @@ def role_required(required_role):
     return True
 
 
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not role_required("admin"):
+            return jsonify({
+                "success": False,
+                "message": "Admin access required"
+            }), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+
  #Admin only
 
 @app.route("/admin", methods=["GET"])
 @jwt_required()
+@admin_required
 def admin_dashboard():
-
-    if not role_required("admin"):
-        return jsonify({
-            "success": False,
-            "message": "Admin access required"
-        }), 403
 
     return jsonify({
         "success": True,
         "message": "Welcome to the admin dashboard"
     }), 200
 
+
 @app.route("/admin/users", methods=["GET"])
 @jwt_required()
+@admin_required
 def admin_users():
-    if not role_required("admin"):
-        return jsonify({
-            "success": False,
-            "message": "Admin access required"
-        }), 403
 
     result = service.get_all_users()
     return jsonify(result), 200
 
+
 @app.route("/admin/users/count", methods=["GET"])
 @jwt_required()
+@admin_required
 def admin_total_users():
 
-    if not role_required("admin"):
-        return jsonify({
-            "success": False,
-            "message": "Admin access required"
-        }), 403
-
     result = service.get_total_users()
-
     return jsonify(result), 200
 
 
 @app.route("/admin/summary", methods=["GET"])
 @jwt_required()
+@admin_required
 def admin_summary():
-
-    if not role_required("admin"):
-        return jsonify({
-            "success": False,
-            "message": "Admin access required"
-        }), 403
 
     result = service.admin_summary()
 
@@ -163,14 +178,9 @@ def admin_summary():
 
 @app.route("/admin/users/<int:user_id>",methods = ["DELETE"])
 @jwt_required()
+@admin_required
 def delete_user(user_id):
 
-    if not role_required("admin"):
-         return jsonify({
-                    "success": False,
-                    "message": "Admin access required"
-                }), 403
-    
     current_admin_id = get_jwt_identity()
 
     if str(user_id) == current_admin_id:
@@ -188,13 +198,8 @@ def delete_user(user_id):
 
 @app.route("/admin/users/<int:user_id>/deactivate",methods = ["PATCH"])
 @jwt_required()
+@admin_required
 def deactivate_user(user_id):
-
-    if not role_required("admin"):
-         return jsonify({
-                    "success": False,
-                    "message": "Admin access required"
-                }), 403
     current_admin_id = get_jwt_identity()
     
     if str(user_id) == current_admin_id:
@@ -212,13 +217,8 @@ def deactivate_user(user_id):
 
 @app.route("/admin/users/<int:user_id>/activate",methods = ["PATCH"])
 @jwt_required()
+@admin_required
 def activate_user(user_id):
-
-    if not role_required("admin"):
-         return jsonify({
-                    "success": False,
-                    "message": "Admin access required"
-                }), 403
     
     result = service.activate_user(user_id)
     if result["success"]:
@@ -437,5 +437,7 @@ def static_files(filename):
 
     
 # ----------- RUN APP --------------
+DEBUG_MODE = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=DEBUG_MODE)

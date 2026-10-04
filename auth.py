@@ -34,7 +34,7 @@ EMAILJS_PRIVATE_KEY = os.getenv("EMAILJS_PRIVATE_KEY", "").strip()
 DB_PATH = os.path.join(BASE_DIR, "expense.db")
 
 def generate_otp():
-    """Generate a random 6-digit numeric OTP as a string, e.g. '042917'."""
+    """Generate a random 6-digit numeric OTP."""
     return "".join(secrets.choice("0123456789") for _ in range(OTP_LENGTH))
 
 
@@ -65,7 +65,6 @@ def get_db():
 
 def send_otp_email(email, otp):
     if not all([EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, EMAILJS_PRIVATE_KEY]):
-        print("EmailJS keys are missing in .env")
         return False
 
     url = "https://api.emailjs.com/api/v1.0/email/send"
@@ -92,7 +91,6 @@ def send_otp_email(email, otp):
         print("EmailJS CONNECTION ERROR:", error)
         return False
 
-
     
 
 def users_table():
@@ -106,6 +104,7 @@ def users_table():
             role TEXT NOT NULL DEFAULT 'user',is_verified INTEGER NOT NULL DEFAULT 0,
             otp_hash TEXT,
             otp_expires_at TEXT,
+            otp_attempts INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             deleted_at TEXT,
             is_active INTEGER NOT NULL DEFAULT 1
@@ -191,50 +190,101 @@ def register():
             "success": False,
             "message": "Password is too long"
         }), 400
-
+    
+    if password_too_long_for_bcrypt(password):
+        return jsonify({
+            "success": False,
+            "message": "Password is too long (max 72 bytes)"
+        }), 400
+    
     correct_password, message = strong_password(password)
     if not correct_password:
         return jsonify({"success": False, "message": message}), 400
 
+
     # Hash the password
     password_hash = bcrypt.hashpw(password.encode("utf-8"),bcrypt.gensalt()).decode("utf-8")
-
 
     otp = generate_otp()
     otp_hash = hash_otp(otp)
     otp_expires_at = otp_expiry_timestamp()
     created_at = datetime.now(timezone.utc).isoformat()
 
-    # Save to database
+    conn = get_db()
+
+    existing = conn.execute(
+        """
+        SELECT id, is_verified, deleted_at
+        FROM users
+        WHERE email = ?
+        """,
+        (email,)
+    ).fetchone()
+
     try:
+        if existing:
+            if existing["is_verified"] == 1 and existing["deleted_at"] is None:
+                conn.close()
+                return jsonify({
+                    "success": False,
+                    "message": "Email already exists"
+                }), 400
 
-        conn = get_db()
-
-        conn.execute(
-            """INSERT INTO users
-            (email, password_hash, is_verified, otp_hash, otp_expires_at,created_at)
-            VALUES (?, ?, 0, ?, ?,?)""",
-            (email, password_hash, otp_hash, otp_expires_at, created_at)
-        )
+            # Unverified account (overwrite and restart verification fresh)
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?,
+                    is_verified = 0,
+                    otp_hash = ?,
+                    otp_expires_at = ?,
+                    otp_attempts = 0,
+                    deleted_at = NULL,
+                    is_active = 1,
+                    created_at = ?
+                WHERE email = ?
+                """,
+                (password_hash, otp_hash, otp_expires_at, created_at, email)
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users
+                (email, password_hash, is_verified, otp_hash, otp_expires_at, otp_attempts, created_at)
+                VALUES (?, ?, 0, ?, ?, 0, ?)
+                """,
+                (email, password_hash, otp_hash, otp_expires_at, created_at)
+            )
 
         conn.commit()
         conn.close()
 
-    except sqlite3.IntegrityError:
+    except Exception as error:
+    
+        print("REGISTER DB ERROR:", error)
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({
             "success": False,
-            "message": "Email already exists"
-        }), 400
+            "message": "Could not create account. Please try again."
+        }), 500
 
 
-    # Send OTP directly from backend
+    # Send OTP
+    
     email_sent = send_otp_email(email, otp)
 
     if not email_sent:
-        # Remove the newly-created account if email sending failed
         conn = get_db()
         conn.execute(
-            "DELETE FROM users WHERE email = ? AND deleted_at IS NULL",
+            """
+            DELETE FROM users
+            WHERE email = ?
+              AND is_verified = 0
+              AND deleted_at IS NULL
+            """,
             (email,)
         )
         conn.commit()
@@ -245,13 +295,149 @@ def register():
             "message": "We could not send the verification email. Please try again."
         }), 500
 
-
     return jsonify({
         "success": True,
         "message": "Registration successful. Check your email."
     }), 201
-    
 
+
+def password_too_long_for_bcrypt(password):
+    return len(password.encode("utf-8")) > 72
+
+
+
+@auth.route("/verify-otp", methods=["POST"])
+@limiter.limit("5 per minute")
+def verify_otp():
+
+    MAX_OTP_ATTEMPTS = 5
+
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Request must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "Invalid JSON data"}), 400
+
+    email = data.get("email", "")
+    otp   = data.get("otp", "")
+
+    if not isinstance(email, str) or not isinstance(otp, str):
+        return jsonify({"success": False, "message": "Email and code must be text"}), 400
+
+    email = email.strip().lower()
+    otp   = otp.strip()
+
+    if not email or not otp:
+        return jsonify({"success": False, "message": "Email and code are required"}), 400
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email = ? AND deleted_at IS NULL AND is_active = 1", (email,)).fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({"success": False, "message": "Invalid email or code"}), 400
+
+    if user["is_verified"]:
+        conn.close()
+        return jsonify({"success": True, "message": "Email already verified"}), 200
+
+    if is_otp_expired(user["otp_expires_at"]):
+        conn.close()
+        return jsonify({"success": False, "message": "Code expired. Request a new one."}), 400
+
+
+    if hash_otp(otp) != user["otp_hash"]:
+        attempts = user["otp_attempts"] + 1
+
+        if attempts >= MAX_OTP_ATTEMPTS:
+            conn.execute(
+                "UPDATE users SET otp_hash = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE email = ?",
+                (email,)
+            )
+            conn.commit()
+            conn.close()
+            return jsonify({
+                "success": False,
+                "message": "Too many incorrect attempts. Please request a new code."
+            }), 400
+
+        conn.execute(
+            "UPDATE users SET otp_attempts = ? WHERE email = ?",
+            (attempts, email)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"success": False, "message": "Incorrect code"}), 400
+
+    
+    conn.execute(
+        "UPDATE users SET is_verified = 1, otp_hash = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE email = ? AND deleted_at IS NULL",
+        (email,)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "message": "Email verified! You can now log in."}), 200
+
+
+@auth.route("/resend-otp", methods=["POST"])
+@limiter.limit("5 per minute")
+def resend_otp():
+
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Request must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "Invalid JSON data"}), 400
+
+    email = data.get("email", "")
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({"success": False, "message": "Email is required"}), 400
+
+    email = email.strip().lower()
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email = ? AND deleted_at IS NULL AND is_active = 1", (email,)).fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({"success": True, "message": "If that account exists, a new code was sent."}), 200
+
+    if user["is_verified"]:
+        conn.close()
+        return jsonify({"success": True, "message": "Email already verified"}), 200
+
+    otp = generate_otp()
+
+    otp_hash = hash_otp(otp)
+    otp_expires_at = otp_expiry_timestamp()
+
+    conn.execute(
+        """UPDATE users
+        SET otp_hash = ?, otp_expires_at = ?, otp_attempts = 0
+        WHERE email = ? AND deleted_at IS NULL""",
+        (otp_hash, otp_expires_at, email)
+    )
+    conn.commit()
+    conn.close()
+
+
+    # Send the new OTP directly from the backend
+    email_sent = send_otp_email(email, otp)
+
+    if not email_sent:
+        return jsonify({
+            "success": False,
+            "message": "Could not send the verification email. Please try again."
+        }), 500
+
+
+    return jsonify({
+        "success": True,
+        "message": "A new verification code has been sent."
+    }), 200
 
 
 
@@ -304,6 +490,13 @@ def login():
             "message": "Password is too long"
         }), 400
 
+    
+    if password_too_long_for_bcrypt(password):
+            return jsonify({
+                "success": False,
+                "message": "Invalid email or password"
+            }), 401
+
         
     conn = get_db()
     user = conn.execute(
@@ -315,6 +508,7 @@ def login():
     
     if not user:
         return jsonify({"success": False, "message": "Invalid email or password"}), 401
+
 
     # Check if password matches
     password_matches = bcrypt.checkpw(password.encode("utf-8"),user["password_hash"].encode("utf-8")
@@ -344,121 +538,3 @@ def login():
         "token": token,
         "role": user["role"]
     }), 200
-
-
-
-
-@auth.route("/verify-otp", methods=["POST"])
-@limiter.limit("5 per minute")
-def verify_otp():
-
-    if not request.is_json:
-        return jsonify({"success": False, "message": "Request must be JSON"}), 400
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"success": False, "message": "Invalid JSON data"}), 400
-
-    email = data.get("email", "")
-    otp   = data.get("otp", "")
-
-    if not isinstance(email, str) or not isinstance(otp, str):
-        return jsonify({"success": False, "message": "Email and code must be text"}), 400
-
-    email = email.strip().lower()
-    otp   = otp.strip()
-
-    if not email or not otp:
-        return jsonify({"success": False, "message": "Email and code are required"}), 400
-
-    conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE email = ? AND deleted_at IS NULL AND is_active = 1", (email,)).fetchone()
-
-    if not user:
-        conn.close()
-        return jsonify({"success": False, "message": "Invalid email or code"}), 400
-
-    if user["is_verified"]:
-        conn.close()
-        return jsonify({"success": True, "message": "Email already verified"}), 200
-
-    if is_otp_expired(user["otp_expires_at"]):
-        conn.close()
-        return jsonify({"success": False, "message": "Code expired. Request a new one."}), 400
-
-    if hash_otp(otp) != user["otp_hash"]:
-        conn.close()
-        return jsonify({"success": False, "message": "Incorrect code"}), 400
-
-    conn.execute(
-        "UPDATE users SET is_verified = 1, otp_hash = NULL, otp_expires_at = NULL WHERE email = ?AND deleted_at IS NULL",
-        (email,)
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({"success": True, "message": "Email verified! You can now log in."}), 200
-
-
-@auth.route("/resend-otp", methods=["POST"])
-@limiter.limit("5 per minute")
-def resend_otp():
-
-    if not request.is_json:
-        return jsonify({"success": False, "message": "Request must be JSON"}), 400
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"success": False, "message": "Invalid JSON data"}), 400
-
-    email = data.get("email", "")
-    if not isinstance(email, str) or not email.strip():
-        return jsonify({"success": False, "message": "Email is required"}), 400
-
-    email = email.strip().lower()
-
-    conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE email = ? AND deleted_at IS NULL AND is_active = 1", (email,)).fetchone()
-
-    if not user:
-        conn.close()
-        return jsonify({"success": True, "message": "If that account exists, a new code was sent."}), 200
-
-    if user["is_verified"]:
-        conn.close()
-        return jsonify({"success": True, "message": "Email already verified"}), 200
-
-    otp = generate_otp()
-
-    otp_hash = hash_otp(otp)
-    otp_expires_at = otp_expiry_timestamp()
-
-    conn.execute(
-        """UPDATE users
-        SET otp_hash = ?, otp_expires_at = ?
-        WHERE email = ? AND deleted_at IS NULL""",
-        (otp_hash, otp_expires_at, email)
-    )
-
-    conn.commit()
-    conn.close()
-
-
-    # Send the new OTP directly from the backend
-    email_sent = send_otp_email(email, otp)
-
-    if not email_sent:
-        return jsonify({
-            "success": False,
-            "message": "Could not send the verification email. Please try again."
-        }), 500
-
-
-    return jsonify({
-        "success": True,
-        "message": "A new verification code has been sent."
-    }), 200
-
-
-
-    

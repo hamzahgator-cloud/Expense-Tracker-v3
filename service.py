@@ -1,4 +1,5 @@
 from expense import Expense
+import math
 
 
 class ExpenseService:
@@ -34,6 +35,9 @@ class ExpenseService:
             amount = float(amount)
         except (TypeError, ValueError):
             return {"success": False, "message": "Amount must be a number"}
+
+        if not math.isfinite(amount):
+            return {"success": False, "message": "Amount must be a finite number"}
 
         if amount <= 0:
             return {"success": False, "message": "Invalid amount"}
@@ -100,6 +104,9 @@ class ExpenseService:
         except (TypeError, ValueError):
             return {"success": False, "message": "Amount must be a number"}
 
+        if not math.isfinite(amount):
+            return {"success": False, "message": "Amount must be a finite number"}
+
         if amount <= 0:
             return {"success": False, "message": "Invalid amount"}
 
@@ -110,8 +117,6 @@ class ExpenseService:
         return {"success": True, "message": "Expense updated successfully"}
 
 
-
-   
     def delete_expense(self,expense_id,user_id):
 
         if not self.repo.get_expense_by_id(expense_id,user_id):
@@ -184,8 +189,7 @@ class ExpenseService:
         return {
             "success": True,
             "data": [
-                [row[0],
-                  row[1]]
+                {"category": row[0], "total": row[1]}
                 for row in rows
             ]
         }
@@ -194,12 +198,20 @@ class ExpenseService:
     def get_min_max(self, user_id):
         rows = self.repo.get_min_max(user_id)
 
+        if not rows:
+            return {"success": True, "data": []}
+
+        labels = ["highest", "lowest"]
+
         return {
             "success": True,
             "data": [
-                [row[0], 
-                row[1]]
-                for row in rows
+                {
+                    "type": labels[i] if i < len(labels) else "unknown",
+                    "name": row[0],
+                    "amount": row[1]
+                }
+                for i, row in enumerate(rows)
             ]
         }
 

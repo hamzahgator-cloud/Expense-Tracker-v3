@@ -6,7 +6,7 @@ This is the third version of my Expense Tracker learning project.
 
 - **v1:** Python CLI + JSON storage  
 - **v2:** Python CLI + SQLite database  
-- **v3:** Flask API + HTML/CSS/JS frontend (this version)
+- **v3:** Full stack app (Flask API + HTML/CSS/JS frontend (this version))
 
 ---
 
@@ -59,7 +59,7 @@ This is the third version of my Expense Tracker learning project.
 
 ## Project Structure
 
-```text
+`text
 Expense-Tracker-v3/
 ├── app.py              # Flask routes
 ├── auth.py             # Auth + OTP + users table

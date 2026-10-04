@@ -14,6 +14,8 @@ if (role === "admin" && adminLink) {
     adminLink.classList.remove("hidden");
 }
 
+
+
 // ─── AUTH HEADERS 
 function authHeaders() {
     return {
@@ -48,16 +50,45 @@ function handle401() {
     window.location.href = "login.html";
 }
 
+
+
 async function apiFetch(url, options = {}) {
-    const response = await fetch(url, options);
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        throw new Error("Connection error. Please try again.");
+    }
 
     if (response.status === 401) {
         handle401();
         throw new Error("Session expired. Redirecting to login.");
     }
 
+    if (!response.ok) {
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = null;
+        }
+
+        const message =
+        (response.status < 500 && data && data.message) ||
+        (response.status === 403 && "Access denied.") ||
+        (response.status === 404 && "Not found.") ||
+        (response.status === 429 && "Too many requests. Try again later.") ||
+        (response.status >= 500 && "Server error. Try again later.") ||
+        "Something went wrong.";
+
+        throw new Error(message);
+    }
+
     return response;
 }
+
 
 
 
@@ -84,10 +115,11 @@ window.addEventListener("DOMContentLoaded", () => {
     setInterval(checkTokenAndLogout, 60000);
     loadExpenses();
     loadDashboard();
-    loadCharts();        
+    loadCharts();  
+    document.getElementById("name").focus();      
 });
 
-// ─── DOM ELEMENTS 
+
 const expenseForm = document.getElementById("expense-form");
 const expenseBody = document.getElementById("expense-body");
 const searchBtn   = document.querySelector(".search-btn");
@@ -114,9 +146,15 @@ async function loadCategoryChart() {
         const result   = await response.json();
         const data     = result.data;
 
+        if (!Array.isArray(data) || data.length === 0) {
+            if (barChart) barChart.destroy();
+            if (pieChart) pieChart.destroy();
+            return;
+        }
+
         // Extract labels and values from the data
-        const labels = data.map(item => item[0]);
-        const values = data.map(item => item[1]);
+        const labels = data.map(item => item.category);
+        const values = data.map(item => item.total);
 
         // Colors for each category
         const colors = [
@@ -192,8 +230,8 @@ async function loadCategoryChart() {
         });
 
     } catch (error) {
-        console.error("Category chart error:", error);
-    }
+    showMessage(error.message, "error");
+}
 }
 
 
@@ -269,7 +307,7 @@ async function loadTimeChart() {
         });
 
     } catch (error) {
-        console.error("Time chart error:", error);
+    showMessage(error.message, "error");
     }
 }
 
@@ -282,9 +320,7 @@ function showMessage(message, type) {
     box.style.display    = "block";
     box.style.color      = type === "success" ? "#16A34A" : "#DC2626";
     box.style.backgroundColor = type === "success" ? "#F0FDF4" : "#FEF2F2";
-    box.style.border     = type === "success" 
-                           ? "1px solid #BBF7D0" 
-                           : "1px solid #FECACA";
+    box.style.border     = type === "success" ? "1px solid #BBF7D0" : "1px solid #FECACA";
 
     setTimeout(() => {
         box.style.display = "none";
@@ -319,7 +355,7 @@ async function loadExpenses() {
         }
 
     } catch (error) {
-        console.error("Failed to load expenses:", error);
+    showMessage(error.message, "error");
     }
 }
 
@@ -334,7 +370,9 @@ expenseForm.addEventListener("submit", async function(event) {
         amount:   document.getElementById("amount").value,
         category: document.getElementById("category").value.trim(),
         date:     new Date().toLocaleDateString()
+        
     };
+    
 
     try {
         const response = await apiFetch(`${API}/expenses`, {
@@ -355,7 +393,7 @@ expenseForm.addEventListener("submit", async function(event) {
         }
 
     } catch (error) {
-        console.error("Error:", error);
+    showMessage(error.message, "error");
     }
 });
 
@@ -401,7 +439,7 @@ function addExpenseToTable(expense) {
     expenseBody.appendChild(row);
 }
 
-// ─── EVENT DELEGATION (UPDATE + DELETE) ────
+//  EVENT DELEGATION (UPDATE + DELETE) 
 expenseBody.addEventListener("click", (event) => {
     const target = event.target;
 
@@ -414,7 +452,9 @@ expenseBody.addEventListener("click", (event) => {
     }
 });
 
-// ─── DELETE ────
+
+
+//  DELETE 
 async function handleDelete(id, button) {
     const confirmed = confirm(`Are you sure you want to delete this expense? "${id}"?`);
     if (!confirmed) return;
@@ -438,11 +478,11 @@ async function handleDelete(id, button) {
         }
 
     } catch (error) {
-        console.error(error);
+    showMessage(error.message, "error");
     }
 }
 
-// ─── UPDATE: OPEN FORM ──
+// UPDATE: OPEN FORM 
 function handleUpdateClick( id,button) {
     const row      = button.closest("tr");
     const cells    = row.querySelectorAll("td");
@@ -492,7 +532,7 @@ document.getElementById("btn-confirm-update").addEventListener("click", async ()
         }
 
     } catch (error) {
-        console.error("Update error:", error);
+    showMessage(error.message, "error");
     }
 });
 
@@ -514,7 +554,7 @@ async function loadDashboard() {
         const totalRes   = await apiFetch(`${API}/expenses/total`, { headers: authHeaders() });
         const totalData  = await totalRes.json();
 
-        if(!totalData.data || totalData.data.length===0){
+        if(!totalData.data){
            document.getElementById("total-expense").innerText ="N/A" 
         }
         else{
@@ -529,7 +569,7 @@ async function loadDashboard() {
         const avgRes     = await apiFetch(`${API}/expenses/average`, { headers: authHeaders() });
         const avgData    = await avgRes.json();
 
-        if(!avgData.data || avgData.data.length===0){
+        if(!avgData.data){
             document.getElementById("average-expense").innerText = "N/A"
         }
         else{
@@ -539,42 +579,40 @@ async function loadDashboard() {
 
         const minmaxRes  = await apiFetch(`${API}/expenses/minmax`, { headers: authHeaders() });
         const minmaxData = await minmaxRes.json();
-        const rows = minmaxData.data;
+        const rows = Array.isArray(minmaxData.data) ? minmaxData.data : [];
 
-        if (!rows || rows.length === 0) {
-            document.getElementById("highest-expense").innerText = "N/A";
-            document.getElementById("lowest-expense").innerText = "N/A";
+        const highest = rows.find(item => item.type === "highest");
+        const lowest  = rows.find(item => item.type === "lowest");
 
-        } else if (rows.length === 1) {
-            document.getElementById("highest-expense").innerText =
-                `${rows[0][0]}: ${formatMoney(rows[0][1])}`;
-            document.getElementById("lowest-expense").innerText =
-                `${rows[0][0]}: ${formatMoney(rows[0][1])}`;
-        } else {
-            document.getElementById("highest-expense").innerText =
-                `${rows[0][0]}: ${formatMoney(rows[0][1])}`;
-            document.getElementById("lowest-expense").innerText =
-                `${rows[1][0]}: ${formatMoney(rows[1][1])}`;
-        }
+        document.getElementById("highest-expense").innerText = highest
+        ?`${highest.name}: ${formatMoney(highest.amount)}`: "N/A";
+
+        document.getElementById("lowest-expense").innerText = lowest
+        ?`${lowest.name}: ${formatMoney(lowest.amount)}`: "N/A";
         
 
         const catRes     = await apiFetch(`${API}/expenses/categories/summary`, { headers: authHeaders() });
         const catData    = await catRes.json();
         const categoryBox = document.getElementById("category-summary");
 
-
         categoryBox.innerHTML = "";
-        catData.data.forEach(item => {
-            const div = document.createElement("div");
-            div.innerText = `${item[0]} : ${formatMoney(item[1])}`;
-            categoryBox.appendChild(div);
-        });
+
+        if (!Array.isArray(catData.data) || catData.data.length === 0) {
+            categoryBox.innerText = "No category data";
+
+        } else {
+            catData.data.forEach(item => {
+                const div = document.createElement("div");
+                div.innerText = `${item.category} : ${formatMoney(item.total)}`;
+                categoryBox.appendChild(div);
+            });
+        }
 
         loadCharts();
 
     } catch (error) {
-        console.error("Dashboard error:", error);
-    }   
+    showMessage(error.message, "error");
+    }  
 }
 
 
@@ -606,9 +644,13 @@ async function searchExpense() {
             addExpenseToTable(expense);
         });
 
+
+
     } catch (error) {
-        console.error("Search error:", error);
+    showMessage(error.message, "error");
     }
+
+    
 }
 
 
@@ -652,16 +694,11 @@ async function filterByCategory() {
         result.data.forEach((expense) => {
             addExpenseToTable(expense);
         });
-        
-        
-
 
     } catch (error) {
-        console.error("filter error:", error);
-        showMessage("Connection error. Try again later.", "error");
+    showMessage(error.message, "error");
     }
 }
-
 
 const filterBtn = document.querySelector(".filter-btn");
 filterBtn.addEventListener("click", filterByCategory);

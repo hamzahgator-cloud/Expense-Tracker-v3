@@ -4,13 +4,10 @@ const token = sessionStorage.getItem("token");
 const role = sessionStorage.getItem("role");
 const email = sessionStorage.getItem("email");
 
-if (!token) {
+if (!token || role !== "admin") {
     window.location.href = "login.html";
 }
 
-if (role !== "admin") {
-    window.location.href = "index.html";
-}
 
 function authHeaders() {
     return {
@@ -39,18 +36,47 @@ function formatMoney(value) {
     })}`;
 }
 
+
 async function apiFetch(url, options = {}) {
-    const response = await fetch(url, options);
-    if (response.status === 401 || response.status === 403) {
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        throw new Error("Connection error. Please try again.");
+    }
+
+    if (response.status === 401) {
         sessionStorage.clear();
         window.location.href = "login.html";
         throw new Error("Unauthorized");
     }
+
+    if (!response.ok) {
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = null;
+        }
+
+        const message =
+        (response.status < 500 && data && data.message) ||
+        (response.status === 403 && "Access denied.") ||
+        (response.status === 404 && "Not found.") ||
+        (response.status === 429 && "Too many requests. Try again later.") ||
+        (response.status >= 500 && "Server error. Try again later.") ||
+        "Something went wrong.";
+
+        throw new Error(message);
+    }
+
     return response;
 }
 
-document.getElementById("admin-email").textContent = email || "";
 
+document.getElementById("admin-email").textContent = email || "";
 document.getElementById("btn-logout").addEventListener("click", () => {
     sessionStorage.clear();
     window.location.href = "login.html";
@@ -157,24 +183,29 @@ body.appendChild(row);
 
 
 
-
 async function deleteUser(userId, userEmail) {
-
     const ok = confirm(`Delete user "${userEmail}"?`);
     if (!ok) return;
 
-    const response = await apiFetch(`${API}/admin/users/${userId}`, {
-        method: "DELETE",
-        headers: authHeaders()
-    });
-    const result = await response.json();
+    try {
+        const response = await apiFetch(`${API}/admin/users/${userId}`, {
+            method: "DELETE",
+            headers: authHeaders()
+        });
 
-    if (result.success) {
-        showMessage(result.message, "success");
-        loadUsers();
-        loadSummary();
-    } else {
-        showMessage(result.message || "Delete failed", "error");
+        const result = await response.json();
+
+        if (result.success) {
+            showMessage(result.message, "success");
+            await loadUsers();
+            await loadSummary();
+        } else {
+            showMessage(result.message || "Delete failed", "error");
+        }
+
+    } catch (error) {
+    if (error.message === "Unauthorized") return;
+    showMessage(error.message, "error");
     }
 }
 
@@ -183,19 +214,25 @@ async function deactivateUser(userId, userEmail) {
     const ok = confirm(`Deactivate user "${userEmail}"?`);
     if (!ok) return;
 
-    const response = await apiFetch(`${API}/admin/users/${userId}/deactivate`, {
-        method: "PATCH",
-        headers: authHeaders()
-    });
+    try{
+        const response = await apiFetch(`${API}/admin/users/${userId}/deactivate`, {
+            method: "PATCH",
+            headers: authHeaders()
+        });
 
-    const result = await response.json();
+        const result = await response.json();
 
-    if (result.success) {
-        showMessage(result.message, "success");
-        loadUsers();
-        loadSummary();
-    } else {
-        showMessage(result.message || "Deactivation failed", "error");
+        if (result.success) {
+            showMessage(result.message, "success");
+            await loadUsers();
+            await loadSummary();
+        } else {
+            showMessage(result.message || "Deactivation failed", "error");
+        }
+        
+    } catch (error) {
+    if (error.message === "Unauthorized") return;
+    showMessage(error.message, "error");
     }
 }
 
@@ -203,27 +240,36 @@ async function activateUser(userId, userEmail) {
     const ok = confirm(`Activate user "${userEmail}"?`);
     if (!ok) return;
 
-    const response = await apiFetch(`${API}/admin/users/${userId}/activate`, {
-        method: "PATCH",
-        headers: authHeaders()
-    });
-    const result = await response.json();
+    try{
+        const response = await apiFetch(`${API}/admin/users/${userId}/activate`, {
+            method: "PATCH",
+            headers: authHeaders()
+        });
 
-    if (result.success) {
-        showMessage(result.message, "success");
-        loadUsers();
-        loadSummary();
-    } else {
-        showMessage(result.message || "Activation failed", "error");
+        const result = await response.json();
+
+        if (result.success) {
+            showMessage(result.message, "success");
+            await loadUsers();
+            await loadSummary();
+        } else {
+            showMessage(result.message || "Activation failed", "error");
+        }
+        
+    } catch (error) {
+    if (error.message === "Unauthorized") return;
+    showMessage(error.message, "error");
     }
-}
-   
+    }
+    
 
 window.addEventListener("DOMContentLoaded", async () => {
     try {
         await loadSummary();
         await loadUsers();
+
     } catch (error) {
-        console.error("Admin load error:", error);
+    if (error.message === "Unauthorized") return;
+    showMessage(error.message, "error");
     }
 });

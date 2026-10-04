@@ -260,7 +260,7 @@ class ExpenseRepository:
             cursor = conn.execute(
                 """
                 UPDATE users
-                SET deleted_at = ?
+                SET deleted_at = ? , is_active = 0
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 (deleted_at, user_id)

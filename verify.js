@@ -8,6 +8,39 @@ function showAuthMessage(message, type) {
     box.style.marginBottom = "12px";
 }
 
+
+async function apiFetch(url, options = {}) {
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        throw new Error("Connection error. Please try again.");
+    }
+
+    if (!response.ok) {
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = null;
+        }
+
+        const message =
+            (response.status < 500 && data && data.message) ||
+            (response.status === 429 && "Too many attempts. Please wait a moment and try again.") ||
+            (response.status >= 500 && "Server error. Try again later.") ||
+            "Something went wrong.";
+
+        throw new Error(message);
+    }
+
+    return response;
+}
+
+
+
 window.addEventListener("DOMContentLoaded", () => {
     const params = new URLSearchParams(window.location.search);
     const emailFromUrl = params.get("email");
@@ -40,7 +73,7 @@ window.addEventListener("DOMContentLoaded", () => {
             }
 
             try {
-                const response = await fetch(`${API}/auth/verify-otp`, {
+                const response = await apiFetch(`${API}/auth/verify-otp`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -60,9 +93,9 @@ window.addEventListener("DOMContentLoaded", () => {
                 } else {
                     showAuthMessage(data.message || "Verification failed", "error");
                 }
+
             } catch (error) {
-                console.error("OTP verification error:", error);
-                showAuthMessage("Connection error. Try again later.", "error");
+                showAuthMessage(error.message, "error");
             }
         });
     }
@@ -74,7 +107,7 @@ window.addEventListener("DOMContentLoaded", () => {
             event.preventDefault();
 
             try {
-                const response = await fetch(`${API}/auth/resend-otp`, {
+                const response = await apiFetch(`${API}/auth/resend-otp`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -90,8 +123,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     showAuthMessage(data.message || "Could not resend code", "error");
                 }
             } catch (error) {
-                console.error("Resend OTP error:", error);
-                showAuthMessage("Connection error. Try again later.", "error");
+                showAuthMessage(error.message, "error");
             }
         });
     }
